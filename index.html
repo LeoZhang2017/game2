@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>寻宝枪战</title>
+    <title>坦克大战</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,24 +11,12 @@
         <div id="game-ui">
             <div id="stats">
                 <span id="health">生命值: 100</span>
-                <span id="ammo">弹药: 30</span>
-                <span id="artifacts">密钥碎片: 0/8</span>
+                <span id="ammo">弹药: 50</span>
+                <span id="score">得分: 0</span>
             </div>
         </div>
-        
         <canvas id="gameCanvas"></canvas>
-        
-        <div id="inventory" class="hidden">
-            <h2>库存</h2>
-            <div id="inventory-items"></div>
-        </div>
-
-        <div id="dialog" class="hidden">
-            <div id="dialog-content"></div>
-            <button id="dialog-close">关闭</button>
-        </div>
     </div>
-    
     <script src="game.js"></script>
 </body>
 </html> 
