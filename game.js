@@ -1,3 +1,46 @@
+class Wall {
+    constructor(x, y, width, height) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = '#666';
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        
+        // 添加简单的纹理效果
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        for(let i = 0; i < this.width; i += 10) {
+            ctx.beginPath();
+            ctx.moveTo(this.x + i, this.y);
+            ctx.lineTo(this.x + i, this.y + this.height);
+            ctx.stroke();
+        }
+    }
+}
+
+class Bullet {
+    constructor(x, y, angle, isPlayerBullet, speed, size, damage) {
+        this.x = x;
+        this.y = y;
+        this.speed = speed;
+        this.radius = size;
+        this.angle = angle;
+        this.isPlayerBullet = isPlayerBullet;
+        this.damage = damage;
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = this.isPlayerBullet ? '#4444ff' : '#ff4444';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
 class Tank {
     constructor(game, x, y, color, isPlayer = false) {
         this.game = game;
@@ -6,7 +49,7 @@ class Tank {
         this.color = color;
         this.width = 40;
         this.height = 40;
-        this.speed = isPlayer ? 5 : 3;  // 敌人速度稍慢
+        this.speed = isPlayer ? 10 : 3;  // 玩家速度从5提升到10，敌人保持3不变
         this.rotation = 0; // 角度，0表示向右
         this.health = isPlayer ? 1000 : 200;  // 玩家血量1000，敌人血量200
         this.isPlayer = isPlayer;
@@ -29,6 +72,9 @@ class Tank {
         this.patrolPoint = null;        // 巡逻点
         this.patrolRadius = 200;        // 巡逻半径
         this.aiState = 'patrol';        // AI状态：patrol/chase/retreat
+        this.patrolTimer = 0;           // 添加巡逻计时器
+        this.patrolInterval = 2000;     // 每2秒改变一次巡逻方向
+        this.currentDirection = { x: 0, y: 0 }; // 当前移动方向
     }
 
     draw(ctx) {
@@ -105,8 +151,7 @@ class Tank {
             const bulletX = this.x + Math.cos(angle) * this.cannonLength;
             const bulletY = this.y + Math.sin(angle) * this.cannonLength;
             
-            // 创建新子弹
-            const bullet = new Bullet(
+            this.game.bullets.push(new Bullet(
                 bulletX,
                 bulletY,
                 this.rotation,
@@ -114,14 +159,10 @@ class Tank {
                 this.bulletSpeed,
                 this.bulletSize,
                 this.bulletDamage
-            );
-
-            // 检查子弹数量限制
-            if (this.game.bullets.length < this.game.maxBullets) {
-                this.game.bullets.push(bullet);
-                this.lastShootTime = now;
-                return true;
-            }
+            ));
+            
+            this.lastShootTime = now;
+            return true;
         }
         return false;
     }
@@ -131,7 +172,6 @@ class Tank {
         this.moving = true;
         this.moveDirection = { x: directionX, y: directionY };
         
-        // 计算移动角度
         if (directionX !== 0 || directionY !== 0) {
             this.targetRotation = Math.atan2(directionY, directionX) * 180 / Math.PI;
         }
@@ -143,19 +183,65 @@ class Tank {
             this.lastTrackTime = now;
         }
 
-        // 实际移动
+        // 分别计算X和Y方向的移动
         const moveX = directionX * this.speed;
         const moveY = directionY * this.speed;
 
-        // 边界检查
+        // 分别检查X和Y方向的移动
+        let canMoveX = true;
+        let canMoveY = true;
+
+        // 尝试X方向移动
         const nextX = this.x + moveX;
-        const nextY = this.y + moveY;
+        const nextY = this.y;
         
-        if (nextX >= this.width/2 && nextX <= this.game.canvas.width - this.width/2) {
+        // 检查X方向碰撞
+        for (const wall of this.game.walls) {
+            const tankLeft = nextX - this.width/2;
+            const tankRight = nextX + this.width/2;
+            const tankTop = nextY - this.height/2;
+            const tankBottom = nextY + this.height/2;
+
+            if (!(tankRight < wall.x || 
+                  tankLeft > wall.x + wall.width || 
+                  tankBottom < wall.y || 
+                  tankTop > wall.y + wall.height)) {
+                canMoveX = false;
+                break;
+            }
+        }
+
+        // 尝试Y方向移动
+        const testX = this.x;
+        const testY = this.y + moveY;
+        
+        // 检查Y方向碰撞
+        for (const wall of this.game.walls) {
+            const tankLeft = testX - this.width/2;
+            const tankRight = testX + this.width/2;
+            const tankTop = testY - this.height/2;
+            const tankBottom = testY + this.height/2;
+
+            if (!(tankRight < wall.x || 
+                  tankLeft > wall.x + wall.width || 
+                  tankBottom < wall.y || 
+                  tankTop > wall.y + wall.height)) {
+                canMoveY = false;
+                break;
+            }
+        }
+
+        // 应用可能的移动
+        if (canMoveX && nextX >= this.width/2 && nextX <= this.game.canvas.width - this.width/2) {
             this.x = nextX;
         }
-        if (nextY >= this.height/2 && nextY <= this.game.canvas.height - this.height/2) {
-            this.y = nextY;
+        if (canMoveY && testY >= this.height/2 && testY <= this.game.canvas.height - this.height/2) {
+            this.y = testY;
+        }
+
+        // 如果是AI控制的坦克，在碰到墙时改变方向
+        if (!this.isPlayer && (!canMoveX || !canMoveY)) {
+            this.chooseNewDirection();
         }
     }
 
@@ -222,86 +308,98 @@ class Tank {
     updateAI() {
         if (!this.isPlayer) {
             const now = Date.now();
-            if (now - this.aiUpdateTime >= this.aiUpdateInterval) {
-                // 计算到玩家的距离和方向
-                const dx = this.game.playerTank.x - this.x;
-                const dy = this.game.playerTank.y - this.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const angleToPlayer = Math.atan2(dy, dx) * 180 / Math.PI;
+            
+            // 检查是否被困住
+            const isStuck = this.checkCollision(
+                this.x + this.currentDirection.x * this.speed,
+                this.y + this.currentDirection.y * this.speed
+            );
 
-                // 根据距离切换AI状态
-                if (distance < 150) {
-                    this.aiState = 'retreat';
-                } else if (distance < 400) {
-                    this.aiState = 'chase';
-                } else {
-                    this.aiState = 'patrol';
-                }
+            // 如果被困住或者到了改变方向的时间
+            if (isStuck || now - this.patrolTimer > this.patrolInterval) {
+                this.patrolTimer = now;
+                this.chooseNewDirection();
+            }
 
-                // 根据状态执行不同的行为
-                switch (this.aiState) {
-                    case 'chase':
-                        // 追击玩家
-                        this.targetRotation = angleToPlayer;
-                        this.move(dx/distance, dy/distance);
-                        if (Math.abs(this.rotation - angleToPlayer) < 10) {
-                            this.shoot();
-                        }
-                        break;
+            // 执行移动
+            this.move(this.currentDirection.x, this.currentDirection.y);
 
-                    case 'retreat':
-                        // 撤退并射击
-                        this.targetRotation = angleToPlayer;
-                        this.move(-dx/distance, -dy/distance);
-                        if (Math.abs(this.rotation - angleToPlayer) < 20) {
-                            this.shoot();
-                        }
-                        break;
-
-                    case 'patrol':
-                        // 巡逻行为
-                        if (!this.patrolPoint) {
-                            this.setNewPatrolPoint();
-                        }
-                        this.patrol();
-                        break;
-                }
-
-                this.aiUpdateTime = now;
+            // 如果看到玩家，尝试射击
+            const dx = this.game.playerTank.x - this.x;
+            const dy = this.game.playerTank.y - this.y;
+            const distanceToPlayer = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distanceToPlayer < 300 && Math.random() < 0.02) {
+                this.shoot();
             }
         }
     }
 
-    // 设置新的巡逻点
-    setNewPatrolPoint() {
-        const angle = Math.random() * Math.PI * 2;
-        const distance = Math.random() * this.patrolRadius;
-        this.patrolPoint = {
-            x: this.x + Math.cos(angle) * distance,
-            y: this.y + Math.sin(angle) * distance
+    // 修改AI的选择新方向逻辑
+    chooseNewDirection() {
+        // 如果坦克被困住，尝试更多方向
+        const directions = [];
+        for (let angle = 0; angle < 360; angle += 45) {
+            directions.push({
+                x: Math.cos(angle * Math.PI / 180),
+                y: Math.sin(angle * Math.PI / 180)
+            });
+        }
+
+        // 测试每个方向，选择一个可行的方向
+        for (let i = 0; i < directions.length; i++) {
+            const randomIndex = Math.floor(Math.random() * directions.length);
+            const dir = directions[randomIndex];
+            
+            // 预测下一个位置
+            const nextX = this.x + dir.x * this.speed * 2;
+            const nextY = this.y + dir.y * this.speed * 2;
+            
+            // 如果这个方向可行，就选择它
+            if (!this.checkCollision(nextX, nextY)) {
+                this.currentDirection = dir;
+                return;
+            }
+        }
+
+        // 如果所有方向都不可行，选择相反方向
+        this.currentDirection = {
+            x: -this.currentDirection.x,
+            y: -this.currentDirection.y
         };
-
-        // 确保巡逻点在地图范围内
-        this.patrolPoint.x = Math.max(this.width, Math.min(this.game.canvas.width - this.width, this.patrolPoint.x));
-        this.patrolPoint.y = Math.max(this.height, Math.min(this.game.canvas.height - this.height, this.patrolPoint.y));
     }
 
-    // 执行巡逻
-    patrol() {
-        if (this.patrolPoint) {
-            const dx = this.patrolPoint.x - this.x;
-            const dy = this.patrolPoint.y - this.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+    // 检查位置是否会发生碰撞
+    checkCollision(x, y) {
+        for (const wall of this.game.walls) {
+            const tankLeft = x - this.width/2;
+            const tankRight = x + this.width/2;
+            const tankTop = y - this.height/2;
+            const tankBottom = y + this.height/2;
 
-            if (distance < 10) {
-                // 到达巡逻点，设置新的巡逻点
-                this.setNewPatrolPoint();
-            } else {
-                // 移动到巡逻点
-                this.targetRotation = Math.atan2(dy, dx) * 180 / Math.PI;
-                this.move(dx/distance, dy/distance);
+            if (!(tankRight < wall.x || 
+                  tankLeft > wall.x + wall.width || 
+                  tankBottom < wall.y || 
+                  tankTop > wall.y + wall.height)) {
+                return true;
             }
         }
+        return false;
+    }
+
+    // 修改初始化位置，确保不会卡在墙里
+    static findValidPosition(game) {
+        let x, y;
+        let attempts = 0;
+        const maxAttempts = 100;
+
+        do {
+            x = Math.random() * (game.canvas.width - 100) + 50;
+            y = Math.random() * (game.canvas.height - 100) + 50;
+            attempts++;
+        } while (attempts < maxAttempts && game.checkPositionCollision(x, y));
+
+        return { x, y };
     }
 
     // 更新方法
@@ -322,55 +420,53 @@ class Tank {
     }
 }
 
-class Bullet {
-    constructor(x, y, angle, isPlayerBullet, speed, size, damage) {
-        this.x = x;
-        this.y = y;
-        this.speed = speed;
-        this.radius = size;
-        this.angle = angle;
-        this.isPlayerBullet = isPlayerBullet;
-        this.damage = damage;
-    }
-
-    draw(ctx) {
-        // 简化子弹外观
-        ctx.fillStyle = this.isPlayerBullet ? '#4444ff' : '#ff4444';
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-    }
-}
-
 class Game {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
         this.setupCanvas();
         
-        // 创建玩家坦克
-        this.playerTank = new Tank(this, this.canvas.width/2, this.canvas.height/2, '#0f0', true);
+        // 修改墙壁厚度和位置
+        this.walls = [
+            // 中间的十字形墙壁，减小厚度从40到20
+            new Wall(this.canvas.width/2 - 150, this.canvas.height/2 - 10, 300, 20),  // 横墙
+            new Wall(this.canvas.width/2 - 10, this.canvas.height/2 - 150, 20, 300),  // 竖墙
+            
+            // 四个角落的墙壁，统一使用较细的墙
+            new Wall(100, 100, 100, 15),
+            new Wall(this.canvas.width - 200, 100, 100, 15),
+            new Wall(100, this.canvas.height - 120, 100, 15),
+            new Wall(this.canvas.width - 200, this.canvas.height - 120, 100, 15)
+        ];
+
+        // 修改玩家坦克的初始位置，确保在十字墙下方中央
+        this.playerTank = new Tank(
+            this, 
+            this.canvas.width/2,      // x坐标在中间
+            this.canvas.height/2 + 200, // y坐标在十字墙下方
+            '#0f0', 
+            true
+        );
         
-        // 增加敌方坦克数量
+        // 修改敌方坦克的生成位置，确保在更开阔的位置
         this.enemies = [
-            new Tank(this, 100, 100, '#f00'),
-            new Tank(this, this.canvas.width - 100, 100, '#f00'),
-            new Tank(this, this.canvas.width - 100, this.canvas.height - 100, '#f00'),
-            new Tank(this, 100, this.canvas.height - 100, '#f00')
+            new Tank(this, 200, 200, '#f00'),                                    // 左上区域
+            new Tank(this, this.canvas.width - 200, 200, '#f00'),               // 右上区域
+            new Tank(this, this.canvas.width - 200, this.canvas.height - 200, '#f00'), // 右下区域
+            new Tank(this, 200, this.canvas.height - 200, '#f00')               // 左下区域
         ];
 
         this.bullets = [];
-        this.maxBullets = 50;  // 限制最大子弹数量
-        this.isSpacePressed = false;  // 添加空格键状态跟踪
+        this.maxBullets = 50;
+        this.isSpacePressed = false;
         this.score = 0;
-        this.gameTime = 0;  // 游戏时间（秒）
-        this.lastEnemySpawn = 0;  // 上次生成敌人的时间
-        this.enemySpawnInterval = 30000;  // 每30秒生成新敌人
+        this.gameTime = 0;
+        this.lastEnemySpawn = 0;
+        this.enemySpawnInterval = 30000;
         
         this.setupEventListeners();
         this.gameLoop();
         
-        // 开始计时
         this.startTime = Date.now();
     }
 
@@ -385,55 +481,50 @@ class Game {
     }
 
     setupEventListeners() {
-        const keys = new Set();
+        // 跟踪按下的键
+        this.pressedKeys = new Set();
         
         // 键盘按下
         document.addEventListener('keydown', (e) => {
-            keys.add(e.key);
+            this.pressedKeys.add(e.key);
+            this.updatePlayerMovement();
             
-            // 计算移动方向
-            let dirX = 0;
-            let dirY = 0;
-            
-            if (keys.has('ArrowUp')) dirY = -1;
-            if (keys.has('ArrowDown')) dirY = 1;
-            if (keys.has('ArrowLeft')) dirX = -1;
-            if (keys.has('ArrowRight')) dirX = 1;
-            
-            // 标准化向量
-            if (dirX !== 0 && dirY !== 0) {
-                const length = Math.sqrt(dirX * dirX + dirY * dirY);
-                dirX /= length;
-                dirY /= length;
-            }
-            
-            this.playerTank.move(dirX, dirY);
-            
-            // 空格键射击逻辑优化
+            // 空格键射击
             if (e.key === ' ' && !this.isSpacePressed) {
                 this.isSpacePressed = true;
-                if (this.bullets.length < this.maxBullets) {
-                    this.playerTank.shoot();
-                }
+                this.playerTank.shoot();
             }
         });
         
         // 键盘松开
         document.addEventListener('keyup', (e) => {
-            keys.delete(e.key);
+            this.pressedKeys.delete(e.key);
+            this.updatePlayerMovement();
             
-            // 空格键释放
             if (e.key === ' ') {
                 this.isSpacePressed = false;
             }
-            
-            // 如果没有按键被按下，停止移动
-            if (!keys.has('ArrowUp') && !keys.has('ArrowDown') && 
-                !keys.has('ArrowLeft') && !keys.has('ArrowRight')) {
-                this.playerTank.moving = false;
-                this.playerTank.moveDirection = { x: 0, y: 0 };
-            }
         });
+    }
+
+    // 新增：更新玩家移动
+    updatePlayerMovement() {
+        let dirX = 0;
+        let dirY = 0;
+        
+        if (this.pressedKeys.has('ArrowUp')) dirY = -1;
+        if (this.pressedKeys.has('ArrowDown')) dirY = 1;
+        if (this.pressedKeys.has('ArrowLeft')) dirX = -1;
+        if (this.pressedKeys.has('ArrowRight')) dirX = 1;
+        
+        // 标准化向量
+        if (dirX !== 0 && dirY !== 0) {
+            const length = Math.sqrt(dirX * dirX + dirY * dirY);
+            dirX /= length;
+            dirY /= length;
+        }
+        
+        this.playerTank.move(dirX, dirY);
     }
 
     updateBullets() {
@@ -542,6 +633,9 @@ class Game {
     gameLoop() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         
+        // 绘制墙壁
+        this.walls.forEach(wall => wall.draw(this.ctx));
+        
         // 更新游戏时间
         this.updateGameTime();
         
@@ -562,6 +656,24 @@ class Game {
         this.bullets.forEach(bullet => bullet.draw(this.ctx));
         
         requestAnimationFrame(() => this.gameLoop());
+    }
+
+    // 添加位置检查方法
+    checkPositionCollision(x, y) {
+        for (const wall of this.walls) {
+            const tankLeft = x - 20;
+            const tankRight = x + 20;
+            const tankTop = y - 20;
+            const tankBottom = y + 20;
+
+            if (!(tankRight < wall.x || 
+                  tankLeft > wall.x + wall.width || 
+                  tankBottom < wall.y || 
+                  tankTop > wall.y + wall.height)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
