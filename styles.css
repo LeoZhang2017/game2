@@ -5,7 +5,7 @@
 }
 
 body {
-    background-color: #333;
+    background-color: #fff;
     overflow: hidden;
 }
 
@@ -16,7 +16,7 @@ body {
 }
 
 #gameCanvas {
-    background-color: #000;
+    background-color: #fff;
     width: 100%;
     height: 100%;
 }
